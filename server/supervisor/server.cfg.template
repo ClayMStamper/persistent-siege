@@ -1,0 +1,42 @@
+; Persistent Siege Server configuration.
+; build-server.ps1 writes server.cfg from this template; edit server.cfg
+; afterwards and the supervisor picks changes up on its next restart.
+
+[game]
+; ehb = Kingdom of Ehb (map_world), utrae = Utraean Peninsula (multiplayer_world)
+world            = {{WORLD}}
+; Utraean Peninsula only: regular | veteran | elite
+world_level      = regular
+; easy | normal | hard
+difficulty       = normal
+; nothing | equipped | inventory | all
+drop_on_death    = equipped
+; 2..8; one slot is the parked host avatar
+player_limit     = 8
+game_name        = Persistent Siege
+; letters, digits and spaces only (typed into the game UI)
+host_player_name = PSSHost
+host_character   = PSSHost
+; leave empty for an open game
+password         =
+
+[host]
+game_dir         = {{GAME_DIR}}
+; the menu automation clicks the UI's own 800x600 layout; keep this size
+width            = 800
+height           = 600
+; extra DungeonSiege.exe arguments
+extra_args       =
+
+[supervisor]
+; seconds between health checks
+health_interval  = 30
+; consecutive failed checks before a restart
+health_failures  = 3
+; seconds allowed from launch to a hosted session before retrying
+setup_timeout    = 240
+; daily restart (local time, HH:mm); empty disables
+daily_restart    = 05:00
+log_dir          = {{LOG_DIR}}
+log_max_mb       = 10
+log_keep         = 5

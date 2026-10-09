@@ -1,0 +1,176 @@
+//////////////////////////////////////////////////////////////////////////////
+//
+// File     :  pss_player.skrit
+// Project  :  Persistent Siege Server
+//
+// Attached to the playable hero templates. Server side only.
+//
+//  * Remembers the last start location (pss_checkpoint) the hero reached.
+//  * On death, waits respawn_delay, then revives the hero at that checkpoint.
+//    If a party member resurrects the hero first, or the player chooses the
+//    stock "Respawn as Ghost", it stands aside.
+//  * On a dedicated host (command line pss_host_avatar=true) the host's own
+//    hero is parked: invisible, invincible and unselectable, and the session
+//    options a persistent server needs are enforced (join in progress on,
+//    pausing off, saved characters allowed, player limit).
+//
+//////////////////////////////////////////////////////////////////////////////
+
+// reserved tags
+property bool   _server_only$        = true;
+property string _doc$                = "Persistent Siege: player respawn and host avatar parking";
+
+// exported properties
+property float  respawn_delay$       = 10.0          doc = "Seconds a dead hero waits before reviving at its checkpoint.";
+property float  respawn_life_ratio$  = 0.5           doc = "Fraction of max life restored on revive.";
+property float  poll_period$         = 1.0           doc = "Seconds between life-state checks.";
+
+int PSS_CHECKPOINT_TAG$ = 0x50535343;
+
+SiegePos checkpoint$;
+bool     has_checkpoint$ = false;
+
+owner = GoSkritComponent;
+
+//////////////////////////////////////////////////////////////////////////////
+// functions
+
+// Session options a persistent server must have, whatever state the setup
+// screens were left in. Re-applied every time the host avatar enters.
+void EnforceHostOptions$
+{
+	Server.RCSetAllowJIP( true );
+	Server.RCSetAllowPausing( false );
+	Server.RCSetAllowNewCharactersOnly( false );
+	Server.RCSetMaxPlayers( Config.GetInt( "pss_max_players", 8 ) );
+	Server.SSetAllowRespawn( true );
+	Report.GenericF( "[pss] host options enforced\n" );
+}
+
+void ParkHostAvatar$
+{
+	EnforceHostOptions$;
+	owner.Go.Aspect.SetIsInvincible( true );
+	owner.Go.Aspect.SSetIsVisible( false );
+	owner.Go.Aspect.SSetIsSelectable( false );
+	owner.Go.Aspect.SetIsCollidable( false );
+	owner.Go.Mind.Clear();
+	Report.GenericF( "[pss] host avatar parked\n" );
+}
+
+void Revive$
+{
+	if( has_checkpoint$ )
+	{
+		owner.Go.Placement.SSetPosition( checkpoint$, true );
+	}
+
+	owner.Go.Aspect.SSetLifeState( LS_ALIVE_CONSCIOUS );
+
+	float target$ = owner.Go.Aspect.MaxLife * respawn_life_ratio$;
+	if( target$ < 1.0 )
+	{
+		target$ = 1.0;
+	}
+	float delta$ = target$ - owner.Go.Aspect.CurrentLife;
+	if( delta$ > 0.0 )
+	{
+		Rules.ChangeLife( owner.Goid, delta$ );
+	}
+
+	owner.Go.Mind.Clear();
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// global state
+
+event OnGoHandleMessage$( eWorldEvent e$, WorldMessage msg$ )
+{
+	if( e$ == WE_REQ_ACTIVATE )
+	{
+		if( msg$.GetData1() == PSS_CHECKPOINT_TAG$ )
+		{
+			Goid from$ = msg$.GetSendFrom();
+			if( from$.IsValid() )
+			{
+				if( from$.Go != NULL )
+				{
+					checkpoint$     = from$.Go.Placement.Position;
+					has_checkpoint$ = true;
+				}
+			}
+		}
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// local states
+
+startup state Startup$
+{
+	Trigger OnGoHandleMessage$( WE_ENTERED_WORLD )
+	{
+		#only( game )
+		[[
+		if( owner.Go.Player.Controller != PC_HUMAN )
+		{
+			SetState Dormant$;
+			return;
+		}
+		if( Config.GetBool( "pss_host_avatar", false ) && owner.Go.IsScreenPlayerOwned() )
+		{
+			ParkHostAvatar$;
+			SetState Dormant$;
+			return;
+		}
+		SetState Alive$;
+		]]
+	}
+}
+
+state Dormant$
+{
+}
+
+state Alive$
+{
+	event OnEnterState$
+	{
+		this.CreateTimer( 1, poll_period$ );
+	}
+
+	trigger OnTimer$( 1 )
+	{
+		if( IsAlive( owner.Go.Aspect.LifeState ) || owner.Go.IsGhost() )
+		{
+			this.CreateTimer( 1, poll_period$ );
+		}
+		else
+		{
+			SetState Dead$;
+		}
+	}
+}
+
+state Dead$
+{
+	event OnEnterState$
+	{
+		this.CreateTimer( 1, respawn_delay$ );
+	}
+
+	trigger OnTimer$( 1 )
+	{
+		// resurrected by the party, or respawned as a ghost through the stock UI
+		if( IsAlive( owner.Go.Aspect.LifeState ) || owner.Go.IsGhost() )
+		{
+			SetState Alive$;
+			return;
+		}
+
+		Revive$;
+		SetState Alive$;
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////

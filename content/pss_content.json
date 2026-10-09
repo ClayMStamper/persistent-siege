@@ -1,0 +1,24 @@
+{
+  "version": 1,
+
+  "monster_respawn_delay": 300,
+  "boss_respawn_delay": 3600,
+  "leash_range": 30,
+  "boss_encounter_range": 30,
+
+  "boss_name_patterns": ["boss"],
+  "boss_templates": [
+    "gom_super", "dragon", "gresh", "goblin_robo_suit",
+    "fury", "mad_jailer", "colonel_norick"
+  ],
+  "boss_min_life": 3000,
+
+  "never_respawn_templates": [],
+
+  "player_templates": ["farmboy", "farmgirl", "dwarf", "skeleton_good"],
+  "player_respawn_delay": 10,
+  "player_respawn_life_ratio": 0.5,
+  "checkpoint_reach_range": 12,
+
+  "shift_mp_scaling_for_host_avatar": true
+}

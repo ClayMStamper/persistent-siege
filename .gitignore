@@ -1,0 +1,12 @@
+# Built content tank: contains data derived from the retail game files.
+# Rebuild it with: python tools/build_content.py --game "<Dungeon Siege 1 install>"
+Resources/*.dsres
+Resources/build_report.json
+
+# Server runtime state
+server/supervisor/server.cfg
+server/supervisor/state.json
+server/supervisor/logs/
+
+__pycache__/
+*.pyc

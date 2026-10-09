@@ -1,0 +1,44 @@
+//////////////////////////////////////////////////////////////////////////////
+//
+// File     :  pss.gas
+// Project  :  Persistent Siege Server
+//
+// Templates for the objects the content build places in the world.
+// Derived quest-carrier templates are generated into pss_derived_*.gas.
+//
+//////////////////////////////////////////////////////////////////////////////
+
+[t:template,n:pss_monster_generator]
+{
+	specializes = generator;
+	doc = "Persistent Siege: respawning monster placement";
+	extra_doc = "Replaces a static monster instance. Spawns child_template_name and respawns it after a delay.";
+	category_name = "1w_generator";
+
+	[gizmo]
+	{
+		model				=	m_i_glb_object-waypoint;
+		texture				=	;
+		diffuse_color		=	1.0, 0.5, 0.0;
+		use_diffuse_color	=	true;
+	}
+
+	[pss_monster_gen] { }
+}
+
+[t:template,n:pss_checkpoint]
+{
+	specializes = generator;
+	doc = "Persistent Siege: start-location respawn checkpoint";
+	category_name = "1w_generator";
+
+	[gizmo]
+	{
+		model				=	m_i_glb_object-waypoint;
+		texture				=	;
+		diffuse_color		=	0.0, 0.5, 1.0;
+		use_diffuse_color	=	true;
+	}
+
+	[pss_checkpoint] { }
+}

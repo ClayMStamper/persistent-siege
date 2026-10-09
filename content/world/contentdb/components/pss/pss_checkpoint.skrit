@@ -1,0 +1,81 @@
+//////////////////////////////////////////////////////////////////////////////
+//
+// File     :  pss_checkpoint.skrit
+// Project  :  Persistent Siege Server
+//
+// Invisible marker placed by the content build at every start location of
+// the world. Human-controlled heroes that come within range are told about
+// it; pss_player remembers the last one reached as its respawn point.
+//
+//////////////////////////////////////////////////////////////////////////////
+
+// reserved tags
+property bool   _server_only$        = true;
+property string _doc$                = "Persistent Siege: start-location respawn checkpoint";
+property string _required_component$ = "placement";
+
+// exported properties
+property string start_group$                        doc = "Start group this checkpoint was generated from.";
+property float  reach_range$        = 12.0          doc = "Heroes inside this radius have reached the checkpoint.";
+property float  poll_period$        = 2.0           doc = "Seconds between proximity checks.";
+
+// Data1 tag that pss_player.skrit looks for on WE_REQ_ACTIVATE.
+int PSS_CHECKPOINT_TAG$ = 0x50535343;
+
+owner = GoSkritComponent;
+
+//////////////////////////////////////////////////////////////////////////////
+
+void Announce$
+{
+	if( !AIQuery.DoesSphereHaveHumanControlledOccupants( owner.Go.Placement.Position, reach_range$ ) )
+	{
+		return;
+	}
+
+	AIQuery.TempGopColl1.Clear;
+	AIQuery.GetOccupantsInSphere( owner.Go.Placement.Position, reach_range$, AIQuery.TempGopColl1 );
+
+	int i$ = 0;
+	while( i$ < AIQuery.TempGopColl1.Size() )
+	{
+		Go hero$ = AIQuery.TempGopColl1.Get( i$ );
+		if( hero$ != NULL )
+		{
+			if( hero$.Player.Controller == PC_HUMAN )
+			{
+				if( IsAlive( hero$.Aspect.LifeState ) )
+				{
+					SendWorldMessage( WE_REQ_ACTIVATE, owner.Goid, hero$.Goid, PSS_CHECKPOINT_TAG$ );
+				}
+			}
+		}
+		i$ += 1;
+	}
+}
+
+startup state Startup$
+{
+	transition -> Watching$ : OnGoHandleMessage( WE_ENTERED_WORLD );
+}
+
+state Watching$
+{
+	event OnEnterState$
+	{
+		this.CreateTimer( 1, 1.0 );
+	}
+
+	trigger OnTimer$( 1 )
+	{
+		Announce$;
+		this.CreateTimer( 1, poll_period$ );
+	}
+
+	Trigger OnGoHandleMessage$( WE_ENTERED_WORLD )
+	{
+		this.CreateTimer( 1, 1.0 );
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////

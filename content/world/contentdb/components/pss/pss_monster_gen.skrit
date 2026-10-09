@@ -1,0 +1,211 @@
+//////////////////////////////////////////////////////////////////////////////
+//
+// File     :  pss_monster_gen.skrit
+// Project  :  Persistent Siege Server
+//
+// Respawning replacement for a static monster placement. The content build
+// swaps each eligible monster instance for a generator with the same scid
+// and placement, so the region keeps its authored population and refills it
+// after kills.
+//
+// Scid bits hold the world time (whole seconds + 1) at which a replacement
+// is due, so a pending respawn survives the region streaming out and back
+// in. Zero means "no respawn pending": spawn immediately on entering the
+// world, which also restores children that were alive when it unloaded.
+//
+//////////////////////////////////////////////////////////////////////////////
+
+// reserved tags
+property bool   _server_only$        = true;
+property string _doc$                = "Persistent Siege: respawning monster placement";
+property string _required_component$ = "placement";
+
+// exported properties
+property string child_template_name$                doc = "Template of the monster to spawn.";
+property Scid   initial_command$                    doc = "Initial command given to each spawned monster, if any.";
+property int    max_alive$          = 1             doc = "Live-count cap for this placement.";
+property float  respawn_delay$      = 300.0         doc = "Seconds after a kill before the replacement spawns.";
+property float  leash_range$        = 30.0          doc = "Monsters farther than this from home walk back (0 disables).";
+property bool   boss$               = false         doc = "Bosses only spawn while no human player is inside encounter_range.";
+property float  encounter_range$    = 30.0          doc = "Encounter radius used by boss$.";
+property float  poll_period$        = 4.0           doc = "Seconds between population checks.";
+
+float due_time$ = -1.0;     // < 0: spawn on the next check
+bool  waiting$  = false;    // a kill was seen and the respawn delay is running
+
+owner = GoSkritComponent;
+
+//////////////////////////////////////////////////////////////////////////////
+// functions
+
+void SaveDue$
+{
+	if( waiting$ )
+	{
+		Godb.SetScidBits( owner.scid, Math.ToInt( due_time$ ) + 1 );
+	}
+	else
+	{
+		Godb.SetScidBits( owner.scid, 0 );
+	}
+}
+
+void SpawnOne$
+{
+	GoCloneReq cloneReq$ = MakeGoCloneReq( owner.Goid, child_template_name$ );
+	cloneReq$.StartingPos = owner.Go.Placement.Position;
+	cloneReq$.SetStartingOrient = owner.Go.Placement.Orientation;
+	cloneReq$.SnapToTerrain = true;
+	Goid newGoid$ = GoDb.SCloneGo( cloneReq$ );
+
+	if( newGoid$.IsValid() && initial_command$.IsValid() && initial_command$.GetGoid.IsValid() )
+	{
+		newGoid$.Go.Mind.SetInitialCommand( initial_command$ );
+	}
+}
+
+void Leash$
+{
+	if( leash_range$ <= 0.0 )
+	{
+		return;
+	}
+
+	int i$ = 0;
+	while( i$ < owner.Go.Children.Size() )
+	{
+		Go child$ = owner.Go.Children.Get( i$ );
+		if( child$ != NULL )
+		{
+			if( IsAlive( child$.Aspect.LifeState ) )
+			{
+				if( AIQuery.GetDistance( child$.Placement.Position, owner.Go.Placement.Position ) > leash_range$ )
+				{
+					child$.Mind.Clear();
+					child$.Mind.SDoJob( MakeJobReq( JAT_MOVE, JQ_ACTION, QP_CLEAR, AO_REFLEX, owner.Go.Placement.Position ) );
+				}
+			}
+		}
+		i$ += 1;
+	}
+}
+
+void Check$
+{
+	if( StringTool.IsEmpty( child_template_name$ ) )
+	{
+		return;
+	}
+
+	int alive$ = AIQuery.GetCount( owner.Go, QT_ALIVE, owner.Go.Children );
+
+	if( alive$ >= max_alive$ )
+	{
+		if( waiting$ )
+		{
+			waiting$ = false;
+			SaveDue$;
+		}
+		due_time$ = 0.0;
+		Leash$;
+		return;
+	}
+
+	// below the cap: start the respawn clock unless a spawn is already due
+	if( !waiting$ && ( due_time$ >= 0.0 ) )
+	{
+		waiting$  = true;
+		due_time$ = WorldTime.Time + respawn_delay$;
+		SaveDue$;
+	}
+
+	if( WorldTime.Time < due_time$ )
+	{
+		return;
+	}
+
+	if( boss$ )
+	{
+		if( AIQuery.DoesSphereHaveHumanControlledOccupants( owner.Go.Placement.Position, encounter_range$ ) )
+		{
+			return;
+		}
+	}
+
+	SpawnOne$;
+
+	if( ( alive$ + 1 ) >= max_alive$ )
+	{
+		waiting$  = false;
+		due_time$ = 0.0;
+		SaveDue$;
+	}
+	else
+	{
+		// keep filling on the following checks
+		due_time$ = -1.0;
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// global state
+
+trigger OnGoPreload$
+{
+	if( !StringTool.IsEmpty( child_template_name$ ) )
+	{
+		GoDb.PreloadCloneSource( owner.Go, child_template_name$ );
+	}
+}
+
+Trigger OnGoHandleMessage$( WE_LEFT_WORLD )
+{
+	// clones are not region content; the next entry recreates what is owed
+	owner.Go.RemoveAllChildren;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// local states
+
+startup state Startup$
+{
+	Trigger OnGoHandleMessage$( WE_ENTERED_WORLD )
+	{
+		#only( game )
+		[[
+		int bits$ = Godb.GetScidBits( owner.scid );
+		if( bits$ == 0 )
+		{
+			waiting$  = false;
+			due_time$ = -1.0;
+		}
+		else
+		{
+			waiting$  = true;
+			due_time$ = Math.ToFloat( bits$ - 1 );
+		}
+		SetState Running$;
+		]]
+	}
+}
+
+state Running$
+{
+	event OnEnterState$
+	{
+		this.CreateTimer( 1, Math.RandomFloat( 0.25, 1.5 ) );
+	}
+
+	trigger OnTimer$( 1 )
+	{
+		Check$;
+		this.CreateTimer( 1, poll_period$ );
+	}
+
+	Trigger OnGoHandleMessage$( WE_ENTERED_WORLD )
+	{
+		this.CreateTimer( 1, 0.5 );
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////////
